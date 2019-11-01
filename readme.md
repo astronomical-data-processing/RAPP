@@ -6,7 +6,7 @@
     并修改了readme.txt 加入了点教程
 
 # 简易测光教程:
-##      首先引入:
+    ##      首先引入:
 
         import APpipeline as ap
 
