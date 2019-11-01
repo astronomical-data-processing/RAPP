@@ -15,8 +15,8 @@
         app = ap.APpipeline(data='xxx',
                             expkey='EXPOS',)
 
->###     这里有两个必填参数 分别是fits文件路径与曝光时间的键
->###     曝光时间的键要从fits文件中的header中找到
+>>###     这里有两个必填参数 分别是fits文件路径与曝光时间的键
+>>###     曝光时间的键要从fits文件中的header中找到
 ###     创建好app对象就可以用获得以下参数:
             app.datap:  list    路径中所有fits文件的路径列标
             app.mask:   ndarr   蒙版图片 若初始化没填蒙版路径则默认为内切椭圆
