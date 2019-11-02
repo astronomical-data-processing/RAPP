@@ -1,20 +1,5 @@
 # -*- coding:utf-8 -*-
-# pylint:disable=maybe-no-member
 from module import core
-
-
-import csv
-import multiprocessing as mp
-import os
-from glob import glob
-
-import numpy as np
-import pandas as pd
-from astropy.io import fits
-from astropy.time import Time
-from matplotlib import cm
-from matplotlib import pyplot as plt
-from scipy import ndimage as nd
 
 
 def run():
