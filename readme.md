@@ -1,19 +1,24 @@
 更新:
-===========
+================================
     整体修改了代码结构 现在更容易使用了 功能也更加直观与工具化
     增加了多进程功能 速度比原来更快了
     增加了合并图功能 现在可以用合并图作为参考图来测光了
     并修改了readme.txt 加入了点教程
-**************************
+********************************
+# 提醒!
+    请勿用IDE的调试运行程序
+    因为程序使用了multiprocessing模块
+********************************
 # 简易测光教程:
 >##      首先引入:
 
-        import APpipeline as ap
+        from module import core
 
 >##      随后创建对象:
 
-        app = ap.APpipeline(data='xxx',
-                            expkey='EXPOS',)
+        app = core.APpipeline(data='xxx',
+                              expo_key='EXPOSE',
+                              date_key='DATE',)
 
         这里有两个必填参数 分别是fits文件路径与曝光时间的键
         曝光时间的键要从fits文件中的header中找到
@@ -61,27 +66,27 @@
 
 >##      孔径测光完成后就可以保存我们需要的信息了:
 
-        app.save(result='file')
-        app.draw(result='file')
+        app.save(result='folder')
+        app.draw(result='folder')
 
         app.save()用于保存csv文件与画出曲线图
         app.draw()用于画出参考图 可得知星在图片上的编号
-************************
+********************************
 # 合并图测光教程:
 >##      首先:
 
-        import APpipeline as ap
+        from module import core
 
 >##      随后创建对象:
 
-        app = ap.APpipeline(data='xxx',
-                            bias='xxx',
-                            dark='xxx',
-                            flat='xxx',
-                            mask='xx_mask.png',
-                            expkey='EXPOS',
-                            data_key='DATE',
-                            N=1,)
+        app = core.APpipeline(data='xxx',
+                              bias='xxx',
+                              dark='xxx',
+                              flat='xxx',
+                              mask=mask,
+                              expo_key='EXPOSE',
+                              date_key='DATE',
+                              N=1,)
 
         因为使用图像合并 所以count_star使用默认值 不需要太高
 
@@ -118,7 +123,7 @@
 
 >##      后面与简易版的区别在于draw()上:
 
-        app.draw(result='file',
+        app.draw(result='folder',
                  img_ref=img,
                  info0=info)
         

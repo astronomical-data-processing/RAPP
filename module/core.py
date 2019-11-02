@@ -1,13 +1,10 @@
 # -*- coding:utf-8 -*-
 # Author:weirong, zwj, Jnk_xz,
 # pylint:disable=maybe-no-member
-import copy
 import csv
 import multiprocessing as mp
 import os
-import sys
 from glob import glob
-import time
 
 import numpy as np
 import pandas as pd
@@ -15,8 +12,6 @@ from astropy.io import fits
 from astropy.time import Time
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from matplotlib.ticker import FormatStrFormatter, LinearLocator
-from mpl_toolkits.mplot3d import Axes3D
 from scipy import ndimage as nd
 
 
@@ -64,16 +59,11 @@ def remove_outliers(raw):
         img:    ndarray  去除异常值后的数据图片 datatype为float
     '''
     img = raw.copy()
-
+    # 假如用3*3的权重 会奇异的进入一个3倍std的情况
+    # 正好无法去除异常值 所以这里选用这个特别的窗口
     weights = np.array([[1., 1., 1.],
                         [1., 0., 1.],
                         [1., 1., 1.]])/8.
-    # weights = np.array([[1., 1., 1., 1., 1.],
-    #                     [1., 1., 1., 1., 1.],
-    #                     [1., 1., 0., 1., 1.],
-    #                     [1., 1., 1., 1., 1.],
-    #                     [1., 1., 1., 1., 1.], ])/24.
-    # for _ in 'abc':
     med = nd.median_filter(img, 3)
     res = img - med
     std = np.sqrt(nd.convolve(res**2, weights))
@@ -82,7 +72,7 @@ def remove_outliers(raw):
     return img
 
 
-def collect_data(paths, desc, expkey=None):
+def collect_data(paths, desc, expo_key=None):
     '''
     收集路径中的数据与曝光时间 并转成float ndarray返回
     '''
@@ -93,11 +83,11 @@ def collect_data(paths, desc, expkey=None):
         progress_bar(i, lenth, desc)
         with fits.open(path, ignore_missing_end=True) as f:
             img = f[0].data
-            if expkey is not None:
-                expose.append(float(f[0].header[expkey]))
+            if expo_key is not None:
+                expose.append(float(f[0].header[expo_key]))
         img = img.astype(float)
         datas.append(img)
-    if expkey is None:
+    if expo_key is None:
         return datas
     else:
         return expose, datas
@@ -170,46 +160,47 @@ def annular(img, center, inner, outer):
 
 
 class APpipeline(object):
-    def __init__(self, data, expkey, **kwarg):
+    def __init__(self, data, expo_key, date_key, count=6, N=3, mask: np.ndarray = 0, **kwarg):
         '''
         初始化各种路径APpipline 
         并生成bias, dark, flat, mask
         Para:
-            data:       str     数据路径
-            expkey:     str     曝光时间的键
-            bias:       str     (可选)本底路径
-            dark:       str     (可选)暗场路径
-            flat:       str     (可选)平场路径
-            mask:       str     (可选)蒙版路径
+            data:       path    数据路径
+            expo_key:   str     曝光时间的键
+            mask:       ndarr   (可选)蒙版路径
             data_key:   str     (可选)曝光时间关键词
-            count_star: int     (可选)找星的数量 默认6
+            count:      int     (可选)找星的数量 默认6
             N:          int     (可选)获取多少倍背景标准差的信号信息 默认3
+        kwarg:
+            bias:       path    (可选)本底路径
+            dark:       path    (可选)暗场路径
+            flat:       path    (可选)平场路径
         说明:
+            当bias为默认状态时, 则bias为0
+            当dark为默认状态时, 则dark为0
+            当flat为默认状态时, 则flat为1
             当mask为默认状态时, 则自动生成一个内切椭圆的mask
-            当bias为默认状态时 则bias为0
-            当dark为默认状态时 则dark为0
-            当flat为默认状态时 则flat为1
         '''
         self.datap = glob(os.path.join(data, '*.fit*'))
 
         with fits.open(self.datap[0], ignore_missing_end=True) as f:
             img = f[0].data
             header = f[0].header
-        dataExp = header[expkey]
+        expose = header[expo_key]
+
+        self.date_key = date_key
+        self.count = count
+        self.N = N
 
         bias_path = kwarg['bias'] if 'bias' in kwarg else ''
         dark_path = kwarg['dark'] if 'dark' in kwarg else ''
         flat_path = kwarg['flat'] if 'flat' in kwarg else ''
-        mask_path = kwarg['mask'] if 'mask' in kwarg else ''
-        self.date_key = kwarg['data_key'] if 'data_key' in kwarg else ''
-        self.count_star = kwarg['count_star'] if 'count_star' in kwarg else 6
-        self.N = kwarg['N'] if 'N' in kwarg else 3
 
         biasp = glob(os.path.join(bias_path, '*.fit*'))
         darkp = glob(os.path.join(dark_path, '*.fit*'))
         flatp = glob(os.path.join(flat_path, '*.fit*'))
 
-        if mask_path == '':
+        if mask == 0:
             h, w = img.shape
             x, y = np.meshgrid(np.arange(w),
                                np.arange(h))
@@ -217,39 +208,32 @@ class APpipeline(object):
             a, b = w/2, h/2
             self.mask = (x**2 / a**2 + y**2 / b**2 <= 1)
         else:
-            self.mask = (plt.imread(mask_path).astype(np.int) > 0)
+            self.mask = mask
 
         self.bias = 0.0
         if biasp != []:
             self.bias = np.median(collect_data(biasp, 'bias:'), axis=0)
-        # if _outliers:
-        #     self.bias = remove_outliers(self.bias)
 
         self.dark = 0.0
         if darkp != []:
             self.dark = np.median(collect_data(darkp, 'dark:'), axis=0)
             self.dark -= self.bias
-        # if _outliers:
-        #     self.dark = remove_outliers(self.dark)
 
         self.flat = 1.0
         if flatp != []:
-            flatExp, f = collect_data(flatp, 'flat:', expkey=expkey)
+            flatExp, f = collect_data(flatp, 'flat:', expo_key=expo_key)
             for i in range(len(f)):
                 flat = f[i]
-                flat -= self.bias + self.dark / dataExp * flatExp[i]
+                flat -= self.bias + self.dark / expose * flatExp[i]
                 f[i] = flat/np.median(flat)
             self.flat = np.median(f, axis=0)
-        # if _outliers:
-        #     self.flat = remove_outliers(self.flat)
 
-    def load(self, path, loop=False, outliers=True) -> np.ndarray:
+    def load(self, path, loop=False):
         '''
         读取路径(path)的fits文件图片 并进行预处理与
         para:
             path:       str     路径
             loop:       bool    是否用于循环 是:返回增加拍摄时间与文件名信息 否:只返回图片 默认:False
-            outliers    bool    是否去除异常值 是:去除 否:不去除 默认:True
         return:
             img:        ndarr   图像
             jd:         float   时间
@@ -259,19 +243,16 @@ class APpipeline(object):
             name = os.path.basename(path).split('.')[0]
         with fits.open(path, ignore_missing_end=True) as f:
             img = f[0].data
-            if self.date_key != '' or loop:
+            if loop:
                 jd = Time(f[0].header[self.date_key], format='fits').jd
-            else:
-                jd = -1
         img = img.astype(float)
         img = (img - self.bias - self.dark) / self.flat
-        if outliers:
-            img = remove_outliers(img)
+        img = remove_outliers(img)
         if loop:
             return img, jd, name
         return img
 
-    def find_star(self, img, ref=False, count_star=0):
+    def find_star(self, img, ref=False, count=0):
         '''
         找星程序
         首先对图片进行中值滤波 获取滤波图img_med
@@ -287,39 +268,37 @@ class APpipeline(object):
                 radius:     几何半径
                 centers:    流量中心
         '''
-        if count_star == 0:
-            count_star = self.count_star
-        dic = {}
+        if count == 0:
+            count = self.count
         std = np.std(img[self.mask])
         img_med = nd.median_filter(img, 3)
         sky = np.median(img_med[self.mask])
-        # 这里进行的是连通区计算 首先要扣除星空背景
+        # 标记背景
         img_med[img_med < sky + self.N*std] = 0
-        lbl, count = nd.measurements.label(img_med + ~self.mask)
+        lbl, _ = nd.measurements.label(img_med + ~self.mask)
         img_med *= (lbl != 1)
-        # 星空背景已经扣除 计算连通区 并分析连通区数据
-        lbl, count = nd.measurements.label(img_med)
-        idx = np.arange(count) + 1
-        # 根据连通区计算半径, 筛除半径小的连通区
+        # 计算连通区
+        lbl, num = nd.measurements.label(img_med)
+        idx = np.arange(num) + 1
+        # 根据连通区计算半径
         r_arr = nd.labeled_comprehension(input=img-sky,
                                          labels=lbl,
                                          index=idx,
                                          func=lambda x: np.sqrt(len(x)/np.pi),
                                          out_dtype=float,
                                          default=0)
-        if len(r_arr) > count_star:
+        if len(r_arr) > count:
             sort_idx = np.argsort(-r_arr)
-            r_arr = r_arr[sort_idx[:count_star]]
-            idx = idx[sort_idx[:count_star]]
-        dic['radius'] = pd.Series(r_arr)
-        # 计算质心 mass_center
-        centers = nd.measurements.center_of_mass(input=img-sky,  # 滤波后 星的边界外延更清晰 但用原图来算也没关系 因为边界偏大后的噪声会抵消
+            r_arr = r_arr[sort_idx[:count]]
+            idx = idx[sort_idx[:count]]
+        # 计算质心
+        centers = nd.measurements.center_of_mass(input=img-sky,
                                                  labels=lbl,
                                                  index=idx)
-        dic['centers'] = pd.Series([complex(*center) for center in centers])
+        centers = [complex(*center) for center in centers]
         if ref:
-            return pd.DataFrame(dic)
-        return dic
+            return pd.DataFrame({'radius': pd.Series(r_arr), 'centers': pd.Series(centers)})
+        return {'radius': pd.Series(r_arr), 'centers': pd.Series(centers)}
 
     def info_mp(self, path):
         '''
@@ -359,22 +338,19 @@ class APpipeline(object):
             info0 = self.info[self.info.columns.values[np.argmin(
                 self.info.columns.codes)]]
         c_arr0 = info0['centers'].to_numpy()
-        r_arr0 = info0['radius']
         aaa = []
         lenth = len(self.info.columns)
         for i, key in enumerate(self.info):
             progress_bar(i, lenth, 'match:')
             c_arr = self.info[key]['centers'].to_numpy()
-            r_arr = self.info[key]['radius']
-            # 广播做差 得到所有平移量
+            # 做差 得到所有可能的平移量
             shifts = c_arr[:, np.newaxis] - c_arr0
-            # 再次广播做差 得到所有平移量的差
+            # 再次做差 得到所有可能的平移量的残差
             res = shifts[:, :, np.newaxis, np.newaxis] - shifts
-            # 将差量化
+            # 将残差量化
             res = np.linalg.norm([res.real, res.imag], axis=0)
             # 设定阈值 给差打分
-            offset = (np.median(r_arr) + np.median(r_arr0))/2
-            points = (res < offset) * 1
+            points = (res < 2) * 1
             # 搜集分数
             scores = np.sum(points, axis=2)
             scores = np.sum(scores, axis=2)
@@ -382,23 +358,23 @@ class APpipeline(object):
             idxs = np.argwhere(scores >= np.max(scores)-1)
             shifts = shifts[idxs[:, 0], idxs[:, 1]]
             shift = np.average(shifts, axis=0)
-            aaa.append(shifts)
             self.shifts.append(shift)
-        return aaa
 
     def ap(self, info0=None, a=(1.2, 2.4, 3.6), gain=1.):
         '''
         孔径测光 创建self.table
         随后可运行draw(), save()
         Para:
-            info0:      dataframe           参考图的信息 默认为None None时则选择当前最早拍摄的图片作为参考图
-            a:          tuple(float)        默认(1.2, 2.4, 3.6) (测光孔径比, 背景内孔径比, 背景外孔径比)
-            gain:       float               默认1. 增益
+            info0:      dataframe       参考图的信息 默认为None None时则选择当前最早拍摄的图片作为参考图
+            a:          tuple           默认(1.2, 2.4, 3.6) (测光孔径比, 背景内孔径比, 背景外孔径比)
+            gain:       float           默认1. 增益
         '''
         aperture, inner, outer = a
         if info0 is None:
-            info0 = self.info[self.info.columns.values[np.argmin(
-                self.info.columns.codes)]]
+            info0 = self.info[
+                self.info.columns.values[
+                    np.argmin(
+                        self.info.columns.codes)]]
 
         c_arr0 = info0['centers'].to_numpy()
         r_arr0 = info0['radius'].to_numpy()
@@ -474,20 +450,20 @@ class APpipeline(object):
         fig.savefig(filename)
         plt.close()
 
-    def draw(self, result='result', show_all=False, img_ref=None, info0=None, a=(1.2, 2.4, 3.6), font_size=24):
+    def draw(self, folder='result', show_all=False, img_ref=None, info0=None, a=(1.2, 2.4, 3.6), font_size=24):
         '''
         画图函数 将星图画上孔径进行保存 用以确定每颗星的编号
         para:
-            result:     str     保存文件夹 文件默认文件名为ref.png
+            folder:     str     保存文件夹 文件默认文件名为ref.png
             show_all:   bool    是否显示所有图片 默认:False True:显示所有
             img_ref:    ndarr   参考图路径 默认:None None时则将最早拍摄的图片作为参考图
             info0:      df      参考图对应的参考图信息 默认:None
             a:          tuple   默认(1.2, 2.4, 3.6) (测光孔径比, 背景内孔径比, 背景外孔径比)
             font_size:  int     图片中显示的编号大小 默认24
         '''
-        if not os.path.exists(result):
-            os.makedirs(result)
-        filename = os.path.join(result, 'ref')
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        filename = os.path.join(folder, 'ref')
         if img_ref is not None and info0 is None:
             info0 = self.find_star(img_ref, True)
         elif img_ref is None and info0 is None:
@@ -497,7 +473,7 @@ class APpipeline(object):
             _, name = key0
             img_ref = self.load(self.datap[idx0])
         c_arr0 = info0['centers'].to_numpy()
-        r_arr0 = info0['radius']
+        r_arr0 = info0['radius'].to_numpy()
         centers = np.array(self.shifts)[:, np.newaxis] + c_arr0
         r = max(r_arr0)
         self.draw_circle(filename=filename + '.png',
@@ -509,7 +485,7 @@ class APpipeline(object):
         if show_all:
             for path, c_arr in zip(self.datap, centers):
                 img, _, name = self.load(path, True)
-                filename = os.path.join(result, name)
+                filename = os.path.join(folder, name)
                 self.draw_circle(filename=filename + '.png',
                                  img=img,
                                  c_arr=c_arr,
@@ -517,20 +493,20 @@ class APpipeline(object):
                                  a=a,
                                  font_size=font_size)
 
-    def save(self, result='result'):
+    def save(self, folder='result'):
         '''
         将数据保存为csv与生成光变曲线
         Para:
-            result:    str  默认为相对路径中的result 结果路径
+            folder:    str  默认为相对路径中的result 结果路径
         '''
-        if not os.path.exists(result):
-            os.makedirs(result)
+        if not os.path.exists(folder):
+            os.makedirs(folder)
         print('outputing plot and csv')
         jds = self.info.columns.levels[0]
         plt.figure(figsize=(10.8, 10.8))
         for i, fc in enumerate(self.table):
             name = str(i).zfill(np.log10(len(self.table)).astype(int) + 1)
-            filename = os.path.join(result, name)
+            filename = os.path.join(folder, name)
             with open(filename + '.csv', 'w', newline='') as f:
                 writer = csv.writer(f)
                 mag_lst = []
@@ -545,7 +521,7 @@ class APpipeline(object):
                     continue
                 plt.errorbar(jds, mag_lst, err_lst, label=i)
         plt.legend()
-        filename = os.path.join(result, 'plot')
+        filename = os.path.join(folder, 'plot')
         plt.savefig(filename + '.png')
         plt.close()
 
