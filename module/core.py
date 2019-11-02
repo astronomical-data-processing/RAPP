@@ -257,12 +257,12 @@ class APpipeline(object):
         找星程序
         首先对图片进行中值滤波 获取滤波图img_med
         将滤波图中 滤波图 < [滤波图中值 + N * 原图标准差] 的位置定义为背景
-        余下连通区进行标记 根据大小进行排序 最大的count_star个连通区定义为星
+        余下连通区进行标记 根据大小进行排序 最大的count个连通区定义为星
         随后记录星的几何半径与流量中心 并返回
         para:
             img:        ndarr       图片
             ref:        bool        True:返回pandas.DataFrame对象 False:返回dict对象
-            count_star  int         找多少颗星 默认:0 假如是0时, 则取对象中的count_star参数
+            count       int         找多少颗星 默认:0 假如是0时, 则取对象中的count参数
         return:
             dic:        dict/df     返回的找星数据 有两个关键词
                 radius:     几何半径

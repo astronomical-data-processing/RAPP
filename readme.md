@@ -34,9 +34,9 @@
                                 dark=,
                                 flat=,
                                 mask=,
-                                expkey=,
-                                data_key=,
-                                count_star=,
+                                expo_key=,
+                                date_key=,
+                                count=,
                                 N=)
 
 >##      创建好对象后就可以进行信息初始化了:
@@ -107,10 +107,10 @@
 
         info = app.find_star(img=img,
                              ref=True,
-                             count_star=10)
+                             count=10)
 
-        说明一下: 这里的count_star可以根据显示出的合并图来数一下需要多少星
-        find_star()根据亮到暗找出count_star数量的星的信息并返回成info
+        说明一下: 这里的count可以根据显示出的合并图来数一下需要多少星
+        find_star()根据亮到暗找出count数量的星的信息并返回成info
         info是pandas.DataFrame类型的 之后需要用到
     
 >##      之后将合并图作为参考图重新匹配:
