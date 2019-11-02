@@ -20,10 +20,10 @@
                               expo_key='EXPOSE',
                               date_key='DATE',)
 
-        这里有两个必填参数 分别是fits文件路径与曝光时间的键
-        曝光时间的键要从fits文件中的header中找到
+        这里有三个必填参数 分别是fits文件夹路径 曝光时间的键 拍摄的精确时间的键
+        这两个键要从fits文件中的header中找到
         创建好app对象就可以用获得以下参数:
-            app.datap:  list    路径中所有fits文件的路径列标
+            app.datap:  list    路径中所有fits文件的路径列表
             app.mask:   ndarr   蒙版图片 若初始化没填蒙版路径则默认为内切椭圆
             app.bias:   ndarr   bias图片 若初始化没填bias路径则为0
             app.dark:   ndarr   dark图片 若初始化没填dark路径则为0
