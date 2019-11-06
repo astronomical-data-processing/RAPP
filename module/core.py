@@ -160,12 +160,12 @@ def annular(img, center, inner, outer):
 
 
 class APpipeline(object):
-    def __init__(self, data, expo_key, date_key, count=6, N=3, mask: np.ndarray = 0, **kwarg):
+    def __init__(self, targ, expo_key, date_key, count=6, N=3, mask: np.ndarray = 0, **kwarg):
         '''
         初始化各种路径APpipline 
         并生成bias, dark, flat, mask
         Para:
-            data:       path    数据路径
+            targ:       path    数据路径
             expo_key:   str     曝光时间的键
             mask:       ndarr   (可选)蒙版路径
             data_key:   str     (可选)曝光时间关键词
@@ -181,12 +181,12 @@ class APpipeline(object):
             当flat为默认状态时, 则flat为1
             当mask为默认状态时, 则自动生成一个内切椭圆的mask
         '''
-        self.datap = glob(os.path.join(data, '*.fit*'))
+        self.targ = glob(os.path.join(targ, '*.fit*'))
 
-        with fits.open(self.datap[0], ignore_missing_end=True) as f:
+        with fits.open(self.targ[0], ignore_missing_end=True) as f:
             img = f[0].data
             header = f[0].header
-        expose = header[expo_key]
+        targExp = header[expo_key]
 
         self.date_key = date_key
         self.count = count
@@ -224,9 +224,11 @@ class APpipeline(object):
             flatExp, f = collect_data(flatp, 'flat:', expo_key=expo_key)
             for i in range(len(f)):
                 flat = f[i]
-                flat -= self.bias + self.dark / expose * flatExp[i]
+                flat -= self.bias + self.dark / targExp * flatExp[i]
                 f[i] = flat/np.median(flat)
             self.flat = np.median(f, axis=0)
+        self.aperture, self.inner, self.outer = 1.2, 2.4, 3.6
+        self.font_size = 24
 
     def load(self, path, loop=False):
         '''
@@ -315,9 +317,9 @@ class APpipeline(object):
         dic = {}
         pool = mp.Pool(mp.cpu_count())
         i = 0
-        progress_bar(i, len(self.datap), 'data:')
-        for sub_dic, key in pool.imap(self.info_mp, self.datap):
-            progress_bar(i, len(self.datap), 'data:')
+        progress_bar(i, len(self.targ), 'data:')
+        for sub_dic, key in pool.imap(self.info_mp, self.targ):
+            progress_bar(i, len(self.targ), 'data:')
             i += 1
             dic[key] = sub_dic
         pool.close()
@@ -338,7 +340,6 @@ class APpipeline(object):
             info0 = self.info[self.info.columns.values[np.argmin(
                 self.info.columns.codes)]]
         c_arr0 = info0['centers'].to_numpy()
-        aaa = []
         lenth = len(self.info.columns)
         for i, key in enumerate(self.info):
             progress_bar(i, lenth, 'match:')
@@ -369,7 +370,7 @@ class APpipeline(object):
             a:          tuple           默认(1.2, 2.4, 3.6) (测光孔径比, 背景内孔径比, 背景外孔径比)
             gain:       float           默认1. 增益
         '''
-        aperture, inner, outer = a
+        self.aperture, self.inner, self.outer = a
         if info0 is None:
             info0 = self.info[
                 self.info.columns.values[
@@ -388,7 +389,7 @@ class APpipeline(object):
         }
 
         lenth = len(self.info.columns)
-        for i, items in enumerate(zip(self.datap, self.shifts)):
+        for i, items in enumerate(zip(self.targ, self.shifts)):
             progress_bar(i, lenth, 'ap:')
             path, shift = items
             c_arr = c_arr0 + shift
@@ -396,29 +397,28 @@ class APpipeline(object):
             for i, items in enumerate(zip(c_arr, c_arr0)):
                 # 孔径测光部分
                 c, c0 = items
-                adu = circle(img, c, r*aperture)
+                adu = circle(img, c, r*self.aperture)
                 if len(adu) == 0:
                     continue
-                skys = annular(img, c, r*inner, r*outer)
+                skys = annular(img, c, r*self.inner, r*self.outer)
                 sky, std = bginfo(skys)
-                fs = sum(adu - sky)
-                if fs <= 0:
+                flux = sum(adu - sky)
+                if flux <= 0:
                     continue
-                mag = -2.5 * np.log10(fs)
-                err = 2.5 / np.log(10) / fs * np.sqrt(
-                    + fs / gain
+                mag = -2.5 * np.log10(flux)
+                err = 2.5 / np.log(10) / flux * np.sqrt(
+                    + flux / gain
                     + len(adu) * std**2
                     + len(adu)**2 * std**2 / len(skys))
                 table[str(c0)][jd] = [mag, err]
         self.table = table
 
-    def draw_circle(self, filename, img, c_arr, r, a, font_size):
+    def draw_circle(self, filename, img, c_arr, r):
         '''
         画孔径函数 参数解释同darw()
         '''
         img = img_scale(img)
         W, H = img.shape
-        aperture, inner, outer = a
         fig, ax = plt.subplots(figsize=(H/200, W/200))
         ax.axis('off')
         ax.imshow(img, cmap=cm.cividis)
@@ -428,29 +428,29 @@ class APpipeline(object):
                 'family': 'serif',
                 'color': 'yellow',
                 'weight': 'normal',
-                'size': font_size
+                'size': self.font_size
             }
             ax.text(x=x+r*2,
                     y=y+r*2,
                     s=i,
                     fontdict=font)
             ax.add_artist(plt.Circle((x, y),
-                                     r*aperture,
+                                     r*self.aperture,
                                      edgecolor='red',
                                      facecolor=(0, 0, 0, .0125)))
             ax.add_artist(plt.Circle((x, y),
-                                     r*inner,
+                                     r*self.inner,
                                      edgecolor='green',
                                      facecolor=(0, 0, 0, .0125)))
             ax.add_artist(plt.Circle((x, y),
-                                     r*outer,
+                                     r*self.outer,
                                      edgecolor='green',
                                      facecolor=(0, 0, 0, .0125)))
         plt.tight_layout()
-        fig.savefig(filename)
+        fig.savefig(filename + '.png')
         plt.close()
 
-    def draw(self, folder='result', show_all=False, img_ref=None, info0=None, a=(1.2, 2.4, 3.6), font_size=24):
+    def draw(self, folder='result', show_all=False, img_ref=None, info0=None):
         '''
         画图函数 将星图画上孔径进行保存 用以确定每颗星的编号
         para:
@@ -458,8 +458,6 @@ class APpipeline(object):
             show_all:   bool    是否显示所有图片 默认:False True:显示所有
             img_ref:    ndarr   参考图路径 默认:None None时则将最早拍摄的图片作为参考图
             info0:      df      参考图对应的参考图信息 默认:None
-            a:          tuple   默认(1.2, 2.4, 3.6) (测光孔径比, 背景内孔径比, 背景外孔径比)
-            font_size:  int     图片中显示的编号大小 默认24
         '''
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -471,27 +469,23 @@ class APpipeline(object):
             key0 = self.info.columns.values[idx0]
             info0 = self.info[key0]
             _, name = key0
-            img_ref = self.load(self.datap[idx0])
+            img_ref = self.load(self.targ[idx0])
         c_arr0 = info0['centers'].to_numpy()
         r_arr0 = info0['radius'].to_numpy()
         centers = np.array(self.shifts)[:, np.newaxis] + c_arr0
         r = max(r_arr0)
-        self.draw_circle(filename=filename + '.png',
+        self.draw_circle(filename=filename,
                          img=img_ref,
                          c_arr=c_arr0,
-                         r=r,
-                         a=a,
-                         font_size=font_size)
+                         r=r)
         if show_all:
-            for path, c_arr in zip(self.datap, centers):
+            for path, c_arr in zip(self.targ, centers):
                 img, _, name = self.load(path, True)
                 filename = os.path.join(folder, name)
-                self.draw_circle(filename=filename + '.png',
+                self.draw_circle(filename=filename,
                                  img=img,
                                  c_arr=c_arr,
-                                 r=r,
-                                 a=a,
-                                 font_size=font_size)
+                                 r=r)
 
     def save(self, folder='result'):
         '''
@@ -536,7 +530,7 @@ class APpipeline(object):
         ys_arr, xs_arr = shifts.real, shifts.imag
         ymin, ymax = np.min(ys_arr), np.max(ys_arr)
         xmin, xmax = np.min(xs_arr), np.max(xs_arr)
-        with fits.open(self.datap[0]) as f:
+        with fits.open(self.targ[0]) as f:
             img = f[0].data
         h, w = img.shape
         img_total = np.zeros((h + int(abs(ymin)) + int(abs(ymax)),
@@ -545,7 +539,7 @@ class APpipeline(object):
         L = len(iys_arr)
         Y = int(abs(ymax))
         X = int(abs(xmax))
-        for i, items in enumerate(zip(iys_arr, ixs_arr, self.datap)):
+        for i, items in enumerate(zip(iys_arr, ixs_arr, self.targ)):
             progress_bar(i, L, 'combine:')
             iys, ixs, path = items
             img = self.load(path)
@@ -562,7 +556,7 @@ class APpipeline(object):
         '''
         合并图的多进程调用函数
         '''
-        shift = self.shifts[self.datap.index(path)]
+        shift = self.shifts[self.targ.index(path)]
         img = self.load(path)
         sky, std = bginfo(img, mask=self.mask)
         img -= sky
@@ -593,14 +587,14 @@ class APpipeline(object):
         合并所有图 将所有图都合并到一张图中 返回这张图
         合并图可作为参考图进行匹配与测光 效果应该会更好
         '''
-        with fits.open(self.datap[0]) as f:
+        with fits.open(self.targ[0]) as f:
             img = f[0].data
         h, w = img.shape
         img_total = np.zeros((h, w))
-        lenth = len(self.datap)
+        lenth = len(self.targ)
         pool = mp.Pool(mp.cpu_count())
         i = 0
-        for res in pool.imap(self.combine, self.datap):
+        for res in pool.imap(self.combine, self.targ):
             progress_bar(i, lenth, 'combine:')
             i += 1
             y, x, img = res

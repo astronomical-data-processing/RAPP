@@ -14,28 +14,28 @@
 
         from module import core
 
->##      随后创建对象:
+>##      随后创建测光对象:
 
-        app = core.APpipeline(data='xxx',
+        app = core.APpipeline(targ='xxx',
                               expo_key='EXPOSE',
                               date_key='DATE',)
 
         这里有三个必填参数 分别是fits文件夹路径 曝光时间的键 拍摄的精确时间的键
         这两个键要从fits文件中的header中找到
         创建好app对象就可以用获得以下参数:
-            app.datap:  list    路径中所有fits文件的路径列表
+            app.targ:   list    路径中所有fits文件的路径列表
             app.mask:   ndarr   蒙版图片 若初始化没填蒙版路径则默认为内切椭圆
             app.bias:   ndarr   bias图片 若初始化没填bias路径则为0
             app.dark:   ndarr   dark图片 若初始化没填dark路径则为0
             app.flat:   ndarr   flat图片 若初始化没填flat路径则为1
         这里建议能将可以填的参数都填上 完整版是这个样子的:
-            app = ap.APpipeline(data=,
+            app = ap.APpipeline(targ=,      必填
                                 bias=,
                                 dark=,
                                 flat=,
                                 mask=,
-                                expo_key=,
-                                date_key=,
+                                expo_key=,  必填
+                                date_key=,  必填
                                 count=,
                                 N=)
 
@@ -45,8 +45,7 @@
 
         这一步会创建出app.info
         app.info是一个pandas.DataFrame
-        一共有三个轴 分别是(时间, (几何半径, 流量中心), 星)
-        其中信息分为两个分别是
+        结构为:(时间, (几何半径, 流量中心), 星)
     
 >##      信息初始化后就可以开始匹配了:
 
@@ -61,16 +60,20 @@
         app.ap()
 
         如此便会给app产生一个新的参数app.table
-        app.table是一个字典结构为:(星, 时间, (星等, 误差))
-        每个流量中心实际上代表了一颗星
+        app.table是一个dict
+        结构为:(星, 时间, (星等, 误差))
+        ap()中有两个重要的参数:
+            a:      tuple   默认(1.2, 2.4, 3.6)
+                (测光孔径比, 背景内孔径比, 背景外孔径比)
+            gain:   float   默认1. 增益
 
 >##      孔径测光完成后就可以保存我们需要的信息了:
 
         app.save(result='folder')
         app.draw(result='folder')
 
-        app.save()用于保存csv文件与画出曲线图
-        app.draw()用于画出参考图 可得知星在图片上的编号
+        save()用于保存csv文件与画出曲线图
+        draw()用于画出参考图 可得知星在图片上的编号
 ********************************
 # 合并图测光教程:
 >##      首先:
@@ -83,12 +86,11 @@
                               bias='xxx',
                               dark='xxx',
                               flat='xxx',
-                              mask=mask,
                               expo_key='EXPOSE',
                               date_key='DATE',
                               N=1,)
 
-        因为使用图像合并 所以count_star使用默认值 不需要太高
+        因为使用图像合并 所以count使用默认值6 不需要太高 原因后面会说明
 
 >##      创建好对象后就可以进行信息初始化了:
 
@@ -101,17 +103,16 @@
 >##      这里开始就是关键 因为之后并不是开始测光 而是进行图像合并:
 
         img = app.img_combine()
-    
->##      这样就得到了合并图 这时可以调用matplotlab来显示一下这张图片
->##      但这就先不这么做 直接开始对合并图进行找星:
+
+>##      在合并图中找星:
 
         info = app.find_star(img=img,
                              ref=True,
                              count=10)
 
-        说明一下: 这里的count可以根据显示出的合并图来数一下需要多少星
-        find_star()根据亮到暗找出count数量的星的信息并返回成info
-        info是pandas.DataFrame类型的 之后需要用到
+        这里说明一下 没有在创建对象时提供count 而在这里提供count的原因
+        因为合并图的弱星肯定比原数据明显 所以在合并图中可以找到更多的星
+        既然如此 在创建对象的时候就没必要找太多的星
     
 >##      之后将合并图作为参考图重新匹配:
 
@@ -128,3 +129,7 @@
                  info0=info)
         
         如此以来 参考图就会变成用合并图画出来的
+
+>##     最后保存信息:
+
+        app.save(result='folder')
