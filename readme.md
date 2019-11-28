@@ -12,10 +12,6 @@ Because RAPP uses the multiprocessing module
 
 # Simple photometry tutorial:  
 
-==================================================
-
-##First import module:  
-
     from module.core import RAPP
 
 ## Then create photometric object:  
@@ -74,10 +70,6 @@ save() is used to save the csv file and graph it. draw() is used to draw the ref
 ==================================================
 
 # Overlay photometry tutorial:  
-
-==================================================
-
-##First:  
 
     from module import core
 
