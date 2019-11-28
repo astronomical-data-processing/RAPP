@@ -1,4 +1,4 @@
-更新:
+update:
 ================================
     Add english version of readme.md.
     A little bit of code modification
@@ -94,8 +94,7 @@
 
         app.info_init()
     
->##      Then match:信息初始化后就可以开始匹配了:
-
+>##      Then match:
         app.match()
     
 >##      Then here is the key point, do image combine:
