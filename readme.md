@@ -20,11 +20,11 @@ Because RAPP uses the multiprocessing module
 
 There are three required parameters, the fits folder path, the key of the exposure, and the key of the date. These two keys need to be found in the header of fits file. After creating the rapp object, you can use it to get the following parameters:
 
->rapp.targ: listThe list of fits path.
->rapp.mask: ndarr Mask image. Default is an incut ellipse.
->rapp.bias: ndarr Bias image. Default is 0.
->rapp.dark: ndarr Dark image. Default is 0.
->rapp.flat: ndarr Flat image. Default is 1.
+>rapp.targ: listThe list of fits path.  
+>rapp.mask: ndarr Mask image. Default is an incut ellipse.  
+>rapp.bias: ndarr Bias image. Default is 0.  
+>rapp.dark: ndarr Dark image. Default is 0.  
+>rapp.flat: ndarr Flat image. Default is 1.  
 
 The suggestion here is to fill in all the parameters and the full version looks like this:
 
