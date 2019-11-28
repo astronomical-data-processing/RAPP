@@ -1,13 +1,13 @@
 # update:
-================================
 Add english version of readme.md.
 A little bit of code modification
-********************************
+==================================================
 # Warning!
 Do not use IDE to debugging the program
 Because RAPP uses the multiprocessing module
-********************************
+==================================================
 # Simple photometry tutorial:
+
 ##First import module:
 
     from module.core import RAPP
@@ -65,8 +65,9 @@ gain: float Default is 1.
     rapp.draw(result='folder')
 
 save() is used to save the csv file and graph it. draw() is used to draw the reference image and mark stars.
-********************************
+==================================================
 # Overlay photometry tutorial:
+
 ##First:
 
     from module import core
