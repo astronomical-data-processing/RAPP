@@ -8,11 +8,12 @@ from glob import glob
 
 import numpy as np
 import pandas as pd
-from astropy.io import fits
+from astropy import convolution, io
 from astropy.time import Time
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from scipy import ndimage as nd
+from . import sep
 
 
 def progress_bar(i, l, title=''):
@@ -81,7 +82,7 @@ def collect_data(paths, desc, expo_key=None):
     lenth = len(paths)
     for i, path in enumerate(paths):
         progress_bar(i, lenth, desc)
-        with fits.open(path, ignore_missing_end=True) as f:
+        with io.fits.open(path, ignore_missing_end=True) as f:
             img = f[0].data
             if expo_key is not None:
                 expose.append(float(f[0].header[expo_key]))
@@ -160,7 +161,7 @@ def annular(img, center, inner, outer):
 
 
 class APpipeline(object):
-    def __init__(self, targ, expo_key, date_key, count=6, N=3, mask: np.ndarray = 0, **kwarg):
+    def __init__(self, targ, expo_key, date_key, count=6, N=3, mask: np.ndarray = True, fp_size=(75, 6), **kwarg):
         '''
         初始化各种路径APpipline 
         并生成bias, dark, flat, mask
@@ -171,6 +172,7 @@ class APpipeline(object):
             data_key:   str     (可选)曝光时间关键词
             count:      int     (可选)找星的数量 默认6
             N:          int     (可选)获取多少倍背景标准差的信号信息 默认3
+            fp_size:    int     (可选)背景环内径大小 与 中值滤波半径 默认(75, 6)
         kwarg:
             bias:       path    (可选)本底路径
             dark:       path    (可选)暗场路径
@@ -183,15 +185,17 @@ class APpipeline(object):
         '''
         self.targ = glob(os.path.join(targ, '*.fit*'))
 
-        with fits.open(self.targ[0], ignore_missing_end=True) as f:
+        with io.fits.open(self.targ[0], ignore_missing_end=True) as f:
             img = f[0].data
             header = f[0].header
         targExp = header[expo_key]
-
+        self.W, self.H = img.shape
         self.date_key = date_key
         self.count = count
         self.N = N
-
+        self.font_size = 24
+        self.outliers = True
+        
         bias_path = kwarg['bias'] if 'bias' in kwarg else ''
         dark_path = kwarg['dark'] if 'dark' in kwarg else ''
         flat_path = kwarg['flat'] if 'flat' in kwarg else ''
@@ -200,13 +204,12 @@ class APpipeline(object):
         darkp = glob(os.path.join(dark_path, '*.fit*'))
         flatp = glob(os.path.join(flat_path, '*.fit*'))
 
-        if mask == 0:
-            h, w = img.shape
-            x, y = np.meshgrid(np.arange(w),
-                               np.arange(h))
-            x, y = x - w/2, y - h/2
-            a, b = w/2, h/2
-            self.mask = (x**2 / a**2 + y**2 / b**2 <= 1)
+        if mask is True:
+            y, x = np.meshgrid(np.arange(self.H),
+                               np.arange(self.W))
+            y, x = y - self.H/2, x - self.W/2
+            a, b = self.H/2, self.W/2
+            self.mask = (y**2 / a**2 + x**2 / b**2 <= 1)
         else:
             self.mask = mask
 
@@ -227,8 +230,9 @@ class APpipeline(object):
                 flat -= self.bias + self.dark / targExp * flatExp[i]
                 f[i] = flat/np.median(flat)
             self.flat = np.median(f, axis=0)
-        self.aperture, self.inner, self.outer = 1.2, 2.4, 3.6
-        self.font_size = 24
+
+        self.fpb = np.array(convolution.Ring2DKernel(fp_size[0], 1)).astype(bool)
+        self.fps = np.array(convolution.Tophat2DKernel(fp_size[1])).astype(bool)
 
     def load(self, path, loop=False):
         '''
@@ -243,18 +247,19 @@ class APpipeline(object):
         '''
         if loop:
             name = os.path.basename(path).split('.')[0]
-        with fits.open(path, ignore_missing_end=True) as f:
+        with io.fits.open(path, ignore_missing_end=True) as f:
             img = f[0].data
             if loop:
                 jd = Time(f[0].header[self.date_key], format='fits').jd
         img = img.astype(float)
         img = (img - self.bias - self.dark) / self.flat
-        img = remove_outliers(img)
+        if self.outliers:
+            img = remove_outliers(img)
         if loop:
             return img, jd, name
         return img
 
-    def find_star(self, img, ref=False, count=0):
+    def find_star(self, raw, ref=False, count=0):
         '''
         找星程序
         首先对图片进行中值滤波 获取滤波图img_med
@@ -272,18 +277,25 @@ class APpipeline(object):
         '''
         if count == 0:
             count = self.count
-        std = np.std(img[self.mask])
-        img_med = nd.median_filter(img, 3)
-        sky = np.median(img_med[self.mask])
+        # 抹平背景
+        img = raw - nd.median_filter(raw, footprint=self.fpb)
+        # 计算背景标准差
+        old = np.std(img[self.mask])
+        while 1:
+            jud = (img < 3*old) & (img > -3*old) & self.mask
+            new = np.std(img[jud])
+            if np.abs(new - old)/old > 1e-2:
+                break
+            old = new
         # 标记背景
-        img_med[img_med < sky + self.N*std] = 0
-        lbl, _ = nd.measurements.label(img_med + ~self.mask)
-        img_med *= (lbl != 1)
+        mark = nd.median_filter(img, footprint=self.fps) > self.N*np.std(img[jud])
+        lbl, _ = nd.measurements.label(mark | ~self.mask)
+        mark = mark & (lbl != 1)
         # 计算连通区
-        lbl, num = nd.measurements.label(img_med)
+        lbl, num = nd.measurements.label(mark)
         idx = np.arange(num) + 1
         # 根据连通区计算半径
-        r_arr = nd.labeled_comprehension(input=img-sky,
+        r_arr = nd.labeled_comprehension(input=lbl,
                                          labels=lbl,
                                          index=idx,
                                          func=lambda x: np.sqrt(len(x)/np.pi),
@@ -294,7 +306,7 @@ class APpipeline(object):
             r_arr = r_arr[sort_idx[:count]]
             idx = idx[sort_idx[:count]]
         # 计算质心
-        centers = nd.measurements.center_of_mass(input=img-sky,
+        centers = nd.measurements.center_of_mass(input=raw,
                                                  labels=lbl,
                                                  index=idx)
         centers = [complex(*center) for center in centers]
@@ -418,8 +430,9 @@ class APpipeline(object):
         画孔径函数 参数解释同darw()
         '''
         img = img_scale(img)
-        W, H = img.shape
-        fig, ax = plt.subplots(figsize=(H/200, W/200))
+        w = 10.8
+        h = w / self.W * self.H
+        fig, ax = plt.subplots(figsize=(h, w))
         ax.axis('off')
         ax.imshow(img, cmap=cm.cividis)
         for i, c in enumerate(c_arr):
@@ -450,7 +463,7 @@ class APpipeline(object):
         fig.savefig(filename + '.png')
         plt.close()
 
-    def draw(self, folder='result', show_all=False, img_ref=None, info0=None):
+    def draw(self, folder='result', show_all=False, ref=None, info0=None):
         '''
         画图函数 将星图画上孔径进行保存 用以确定每颗星的编号
         para:
@@ -462,20 +475,20 @@ class APpipeline(object):
         if not os.path.exists(folder):
             os.makedirs(folder)
         filename = os.path.join(folder, 'ref')
-        if img_ref is not None and info0 is None:
-            info0 = self.find_star(img_ref, True)
-        elif img_ref is None and info0 is None:
+        if ref is not None and info0 is None:
+            info0 = self.find_star(ref, True)
+        elif ref is None and info0 is None:
             idx0 = np.argmin(self.info.columns.codes)
             key0 = self.info.columns.values[idx0]
             info0 = self.info[key0]
             _, name = key0
-            img_ref = self.load(self.targ[idx0])
+            ref = self.load(self.targ[idx0])
         c_arr0 = info0['centers'].to_numpy()
         r_arr0 = info0['radius'].to_numpy()
         centers = np.array(self.shifts)[:, np.newaxis] + c_arr0
         r = max(r_arr0)
         self.draw_circle(filename=filename,
-                         img=img_ref,
+                         img=ref,
                          c_arr=c_arr0,
                          r=r)
         if show_all:
@@ -486,6 +499,7 @@ class APpipeline(object):
                                  img=img,
                                  c_arr=c_arr,
                                  r=r)
+                break
 
     def save(self, folder='result'):
         '''
@@ -497,7 +511,9 @@ class APpipeline(object):
             os.makedirs(folder)
         print('outputing plot and csv')
         jds = self.info.columns.levels[0]
-        plt.figure(figsize=(10.8, 10.8))
+        w = 10.8
+        h = w / self.W * self.H
+        plt.figure(figsize=(h, w))
         for i, fc in enumerate(self.table):
             name = str(i).zfill(np.log10(len(self.table)).astype(int) + 1)
             filename = os.path.join(folder, name)
@@ -516,7 +532,7 @@ class APpipeline(object):
                 plt.errorbar(jds, mag_lst, err_lst, label=i)
         plt.legend()
         filename = os.path.join(folder, 'plot')
-        plt.savefig(filename + '.png')
+        plt.savefig(filename + '.eps')
         plt.close()
 
     def img_combine_big(self):
@@ -530,9 +546,7 @@ class APpipeline(object):
         ys_arr, xs_arr = shifts.real, shifts.imag
         ymin, ymax = np.min(ys_arr), np.max(ys_arr)
         xmin, xmax = np.min(xs_arr), np.max(xs_arr)
-        with fits.open(self.targ[0]) as f:
-            img = f[0].data
-        h, w = img.shape
+        h, w = self.W, self.H
         img_total = np.zeros((h + int(abs(ymin)) + int(abs(ymax)),
                               w + int(abs(xmin)) + int(abs(xmax))))
         iys_arr, ixs_arr = ys_arr.astype(int), xs_arr.astype(int)
@@ -587,10 +601,7 @@ class APpipeline(object):
         合并所有图 将所有图都合并到一张图中 返回这张图
         合并图可作为参考图进行匹配与测光 效果应该会更好
         '''
-        with fits.open(self.targ[0]) as f:
-            img = f[0].data
-        h, w = img.shape
-        img_total = np.zeros((h, w))
+        img_total = np.zeros((self.W, self.H))
         lenth = len(self.targ)
         pool = mp.Pool(mp.cpu_count())
         i = 0
