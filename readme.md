@@ -1,18 +1,24 @@
-# update:
+# update:  
+
 Add english version of readme.md.
 A little bit of code modification
 ==================================================
-# Warning!
+
+# Warning!  
+
 Do not use IDE to debugging the program
 Because RAPP uses the multiprocessing module
 ==================================================
-# Simple photometry tutorial:
 
-##First import module:
+# Simple photometry tutorial:  
+
+==================================================
+
+##First import module:  
 
     from module.core import RAPP
 
-## Then create photometric object:
+## Then create photometric object:  
 
     rapp = RAPP(targ='xxx',
     expo_key='EXPOSE',
@@ -38,19 +44,19 @@ The suggestion here is to fill in all the parameters and the full version looks 
                 count=,
                 N=)
 
-##Once the rapp is created, then do the information initialize:
+##Once the rapp is created, then do the information initialize:  
 
     rapp.info_init()
 
 This step will create rapp.info. rapp.info is a pandas.DataFrame. The structure is:(jd, (geometric radius, center of mass), star).
 
-##After information initialized, do the match:
+##After information initialized, do the match:  
 
     rapp.match()
 
 The match() will add rapp.shifts to the rapp object. rapp.shifts is a ndarray, datatype is complex number. Each complex number represents the shift of each image to the reference image.
 
-##After matched, do aperture photometry:
+##After matched, do aperture photometry:  
 
     rapp.ap()
 
@@ -59,20 +65,23 @@ There are 2 important parameters in ap():
 a:tuple Default is (1.2, 2.4, 3.6) (aperture ratio, background inner ratio, background outer ratio)
 gain: float Default is 1.
 
-##After aperture photometry, we can save the informathin we want:
+##After aperture photometry, we can save the informathin we want:  
 
     rapp.save(result='folder')
     rapp.draw(result='folder')
 
 save() is used to save the csv file and graph it. draw() is used to draw the reference image and mark stars.
 ==================================================
-# Overlay photometry tutorial:
 
-##First:
+# Overlay photometry tutorial:  
+
+==================================================
+
+##First:  
 
     from module import core
 
-##Then creat rapp:
+##Then creat rapp:  
 
     rapp = RAPP(data='xxx',
                 bias='xxx',
@@ -84,19 +93,19 @@ save() is used to save the csv file and graph it. draw() is used to draw the ref
 
 Because here is overlay photometry, count USES the default value of 6, which doesn't need to be too high, for reasons explained later
 
-##Then information initialize::
+##Then information initialize:  
 
     rapp.info_init()
 
-##Then match:
+##Then match:  
 
     rapp.match()
 
-##Then here is the key point, do image combine:
+##Then here is the key point, do image combine:  
 
     img = rapp.img_combine()
 
-##Find stars in image:
+##Find stars in image:  
 
     info = rapp.find_star(raw=img,
                           ref=True,
@@ -104,11 +113,11 @@ Because here is overlay photometry, count USES the default value of 6, which doe
 
 Here's why we didn't have to provide count when we created the rapp. Because the weak stars in the combined image are definitely more obvious than the original data, you can find more stars in the combined image. And also we get a new info from the combined image.
 
-##Then aperture photometry, but it also need to throw info to ap() as an argument:
+##Then aperture photometry, but it also need to throw info to ap() as an argument:  
 
     rapp.ap(info)
 
-##In the later process, the difference from the simple version is on draw():
+##In the later process, the difference from the simple version is on draw():  
 
     rapp.draw(result='folder',
               ref=img,
@@ -116,6 +125,6 @@ Here's why we didn't have to provide count when we created the rapp. Because the
 
 Then, the reference image will draw by combine image
 
-## Last:
+## Last:  
 
     rapp.save(result='folder')
