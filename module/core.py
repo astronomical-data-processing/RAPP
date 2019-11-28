@@ -13,7 +13,6 @@ from astropy.time import Time
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from scipy import ndimage as nd
-from . import sep
 
 
 def progress_bar(i, l, title=''):
@@ -160,7 +159,7 @@ def annular(img, center, inner, outer):
     return values
 
 
-class APpipeline(object):
+class RAPP(object):
     def __init__(self, targ, expo_key, date_key, count=6, N=3, mask: np.ndarray = True, fp_size=(75, 6), **kwarg):
         '''
         初始化各种路径APpipline 
@@ -195,7 +194,7 @@ class APpipeline(object):
         self.N = N
         self.font_size = 24
         self.outliers = True
-        
+
         bias_path = kwarg['bias'] if 'bias' in kwarg else ''
         dark_path = kwarg['dark'] if 'dark' in kwarg else ''
         flat_path = kwarg['flat'] if 'flat' in kwarg else ''
@@ -231,8 +230,10 @@ class APpipeline(object):
                 f[i] = flat/np.median(flat)
             self.flat = np.median(f, axis=0)
 
-        self.fpb = np.array(convolution.Ring2DKernel(fp_size[0], 1)).astype(bool)
-        self.fps = np.array(convolution.Tophat2DKernel(fp_size[1])).astype(bool)
+        self.fpb = np.array(convolution.Ring2DKernel(
+            fp_size[0], 1)).astype(bool)
+        self.fps = np.array(
+            convolution.Tophat2DKernel(fp_size[1])).astype(bool)
 
     def load(self, path, loop=False):
         '''
@@ -288,7 +289,8 @@ class APpipeline(object):
                 break
             old = new
         # 标记背景
-        mark = nd.median_filter(img, footprint=self.fps) > self.N*np.std(img[jud])
+        mark = nd.median_filter(
+            img, footprint=self.fps) > self.N*np.std(img[jud])
         lbl, _ = nd.measurements.label(mark | ~self.mask)
         mark = mark & (lbl != 1)
         # 计算连通区

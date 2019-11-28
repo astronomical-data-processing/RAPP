@@ -1,0 +1,12 @@
+# 
+document.txt
+test.py
+module/core_new.py
+# folder
+cache/
+local/
+test/
+*/__pycache__
+__pycache__
+test*
+.vscode/*
