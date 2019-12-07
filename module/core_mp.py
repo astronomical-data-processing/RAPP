@@ -67,7 +67,7 @@ def remove_outliers(raw):
     med = nd.median_filter(img, 3)
     res = img - med
     std = np.sqrt(nd.convolve(res**2, weights))
-    mask = (np.abs(res) > 2*std)
+    mask = (np.abs(res) > 3*std)
     img[mask] = med[mask]
     return img
 
@@ -80,7 +80,7 @@ def collect_data(paths, desc, expo_key=None):
     datas = []
     lenth = len(paths)
     for i, path in enumerate(paths):
-        progress_bar(i, lenth, desc)
+        # progress_bar(i, lenth, desc)
         with io.fits.open(path, ignore_missing_end=True) as f:
             img = f[0].data
             if expo_key is not None:
@@ -325,19 +325,28 @@ class RAPP(object):
             return pd.DataFrame({'radius': pd.Series(r_arr), 'centers': pd.Series(centers)})
         return {'radius': pd.Series(r_arr), 'centers': pd.Series(centers)}
 
+    def info_mp(self, path):
+        '''
+        多进程调用函数
+        '''
+        img, jd, name = self.load(path, True)
+        return self.find_star(img), (jd, name)
+
     def info_init(self):
         '''
         初始化信号信息 创建self.info
         随后可以调用match()
         '''
         dic = {}
+        pool = mp.Pool(mp.cpu_count())
         i = 0
-        for path in self.targ:
-            progress_bar(i, len(self.targ), 'data:')
+        # progress_bar(i, len(self.targ), 'data:')
+        for sub_dic, key in pool.imap(self.info_mp, self.targ):
+            # progress_bar(i, len(self.targ), 'data:')
             i += 1
-            img, jd, name = self.load(path, True)
-            sub_dic, key = self.find_star(img), (jd, name)
             dic[key] = sub_dic
+        pool.close()
+        pool.join()
         self.info = pd.DataFrame(dic)
 
     def match(self, info0=None):
@@ -356,7 +365,7 @@ class RAPP(object):
         c_arr0 = info0['centers'].to_numpy()
         lenth = len(self.info.columns)
         for i, key in enumerate(self.info):
-            progress_bar(i, lenth, 'match:')
+            # progress_bar(i, lenth, 'match:')
             c_arr = self.info[key]['centers'].to_numpy()
             # 做差 得到所有可能的平移量
             shifts = c_arr[:, np.newaxis] - c_arr0
@@ -404,7 +413,7 @@ class RAPP(object):
 
         lenth = len(self.info.columns)
         for i, items in enumerate(zip(self.targ, self.shifts)):
-            progress_bar(i, lenth, 'ap:')
+            # progress_bar(i, lenth, 'ap:')
             path, shift = items
             c_arr = c_arr0 + shift
             img, jd, _ = self.load(path, True)
@@ -556,7 +565,7 @@ class RAPP(object):
         Y = int(abs(ymax))
         X = int(abs(xmax))
         for i, items in enumerate(zip(iys_arr, ixs_arr, self.targ)):
-            progress_bar(i, L, 'combine:')
+            # progress_bar(i, L, 'combine:')
             iys, ixs, path = items
             img = self.load(path)
             sky, std = bginfo(img, mask=self.mask)
@@ -604,10 +613,12 @@ class RAPP(object):
         合并图可作为参考图进行匹配与测光 效果应该会更好
         '''
         img_total = np.zeros((self.W, self.H))
+        lenth = len(self.targ)
+        pool = mp.Pool(mp.cpu_count())
         i = 0
-        for path in self.targ:
-            progress_bar(i, len(self.targ), 'combine:')
+        for res in pool.imap(self.combine, self.targ):
+            # progress_bar(i, lenth, 'combine:')
             i += 1
-            y, x, img = self.combine(path)
+            y, x, img = res
             img_total[y, x] += img
-        return img_total / np.sqrt(len(self.targ))
+        return img_total / np.sqrt(lenth)
