@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 # Author:weirong, zwj, Jnk_xz,
 # pylint:disable=maybe-no-member
+# pylint:disable=invalid-unary-operand-type
 import csv
 import multiprocessing as mp
 import os
@@ -80,7 +81,7 @@ def collect_data(paths, desc, expo_key=None):
     datas = []
     lenth = len(paths)
     for i, path in enumerate(paths):
-        # progress_bar(i, lenth, desc)
+        progress_bar(i, lenth, desc)
         with io.fits.open(path, ignore_missing_end=True) as f:
             img = f[0].data
             if expo_key is not None:
@@ -164,7 +165,7 @@ def annular(img, center, inner, outer):
 
 
 class RAPP(object):
-    def __init__(self, targ, expo_key, date_key, count=6, N=3, mask: np.ndarray = True, fp_size=(75, 9), **kwarg):
+    def __init__(self, targ, expo_key, date_key, N=3, mask: np.ndarray = True, fp_size=(75, 9), **kwarg):
         '''
         初始化各种路径APpipline 
         并生成bias, dark, flat, mask
@@ -173,9 +174,8 @@ class RAPP(object):
             expo_key:   str     曝光时间的键
             mask:       ndarr   (可选)蒙版路径
             data_key:   str     (可选)曝光时间关键词
-            count:      int     (可选)找星的数量 默认6
             N:          int     (可选)获取多少倍背景标准差的信号信息 默认3
-            fp_size:    int     (可选)背景环内径大小 与 中值滤波半径 默认(75, 6)
+            fp_size:    int     (可选)背景环内径大小 与 中值滤波半径 默认(75, 9)
         kwarg:
             bias:       path    (可选)本底路径
             dark:       path    (可选)暗场路径
@@ -194,11 +194,9 @@ class RAPP(object):
         targExp = header[expo_key]
         self.W, self.H = img.shape
         self.date_key = date_key
-        self.count = count
         self.N = N
         self.font_size = 24
         self.outliers = True
-
         bias_path = kwarg['bias'] if 'bias' in kwarg else ''
         dark_path = kwarg['dark'] if 'dark' in kwarg else ''
         flat_path = kwarg['flat'] if 'flat' in kwarg else ''
@@ -234,17 +232,17 @@ class RAPP(object):
                 f[i] = flat/np.median(flat)
             self.flat = np.median(f, axis=0)
 
-        fpa = convolution.Ring2DKernel(fp_size[0], 1)
-        fps = convolution.Tophat2DKernel(fp_size[1])
+        self.fpa = convolution.Ring2DKernel(fp_size[0], 1)
+        self.fps = convolution.Tophat2DKernel(fp_size[1])
 
-        fps.normalize()
-        fpa.normalize()
+        self.fpa.normalize()
+        self.fpa.normalize()
 
-        arrs = np.array(fps).astype(bool)
+        arrs = np.array(self.fps).astype(bool)
 
         Ns = len(arrs[arrs])
 
-        self.kernel = np.array(fps * Ns - fpa * Ns)
+        self.kernel = np.array(self.fps * Ns - self.fpa * Ns)
 
     def load(self, path, loop=False):
         '''
@@ -271,7 +269,7 @@ class RAPP(object):
             return img, jd, name
         return img
 
-    def find_star(self, raw, ref=False, count=0):
+    def find_star(self, raw, ref=False, count=8, showLBL=False, name=''):
         '''
         找星程序
         首先对图片进行中值滤波 获取滤波图img_med
@@ -281,23 +279,26 @@ class RAPP(object):
         para:
             img:        ndarr       图片
             ref:        bool        True:返回pandas.DataFrame对象 False:返回dict对象
-            count       int         找多少颗星 默认:0 假如是0时, 则取对象中的count参数
+            count:      int         找多少颗星 默认:0 假如是0时, 则取对象中的count参数
         return:
             dic:        dict/df     返回的找星数据 有两个关键词
                 radius:     几何半径
                 centers:    流量中心
         '''
-        if count == 0:
-            count = self.count
-        # 信号增强
-        img = nd.convolve(raw, self.kernel)
+        if ref:
+            # 叠加图背景去除
+            img = raw - nd.median_filter(raw, footprint=np.array(self.fpa))
+        else:
+            # 信号增强
+            raw = nd.median_filter(raw, 5)
+            img = nd.convolve(raw, self.kernel)
         # 计算背景标准差
         sky, std = bginfo(img, self.mask)
         # 标记背景
         mark = img > sky + self.N*std
-        # 清除跨蒙版星
-        lbl, _ = nd.measurements.label(mark | ~self.mask)
-        mark = mark & (lbl != 1)
+        # # 清除跨蒙版星
+        # lbl, _ = nd.measurements.label(mark | ~self.mask)
+        # mark = mark & (lbl != 1)
         # 计算连通区
         lbl, num = nd.measurements.label(mark)
         idx = np.arange(num) + 1
@@ -308,14 +309,50 @@ class RAPP(object):
                                          func=lambda x: np.sqrt(len(x)/np.pi),
                                          out_dtype=float,
                                          default=0)
-        # 根据半径大小排序
-        sort_idx = np.argsort(-r_arr)
-        r_arr = r_arr[sort_idx]
-        idx = idx[sort_idx]
-        # 筛选count数量的连通区
-        if len(r_arr) > count:
-            r_arr = r_arr[:count]
-            idx = idx[:count]
+        # 第一次筛选连通区
+        # jud = r_arr > 9
+        # idx = idx[jud]
+        # r_arr = r_arr[jud]
+        if ref:
+            jud = r_arr > 3
+            idx = idx[jud]
+            r_arr = r_arr[jud]
+            # 根据R排序
+            jud = np.argsort(-r_arr)
+            idx = idx[jud]
+            r_arr = r_arr[jud]
+            if len(idx) > count:
+                idx = idx[:count]
+                r_arr = r_arr[:count]
+        else:
+            # jud = r_arr > 6
+            # idx = idx[jud]
+            # r_arr = r_arr[jud]
+            # 获取SNR列表
+            F = nd.sum(img, lbl, idx)  # OR MAX
+            # # 第二次筛选连通区
+            # jud = Fmax > np.pi * 9**2 * 0
+            # idx = idx[jud]
+            # r_arr = r_arr[jud]
+            # Fmax = Fmax[jud]
+            # 根据SNR最大值排序
+            jud = np.argsort(-F)
+            idx = idx[jud]
+            r_arr = r_arr[jud]
+            F = F[jud]
+            # 第三次筛选连通区
+            if len(idx) > 8:
+                idx = idx[:8]
+                r_arr = r_arr[:8]
+                F = F[:8]
+        if showLBL:
+            save = np.zeros_like(lbl).astype(int)
+            for i in idx:
+                save += (lbl == i) * 1
+            if not os.path.exists('local/lbl/'):
+                os.mkdir('local/lbl/')
+            plt.imsave('local/lbl/'+name+'_lbl.png', save)
+            plt.close()
         # 计算质心
         centers = nd.measurements.center_of_mass(input=raw,
                                                  labels=lbl,
@@ -330,7 +367,7 @@ class RAPP(object):
         多进程调用函数
         '''
         img, jd, name = self.load(path, True)
-        return self.find_star(img), (jd, name)
+        return self.find_star(img, name=name), (jd, name)
 
     def info_init(self):
         '''
@@ -338,18 +375,18 @@ class RAPP(object):
         随后可以调用match()
         '''
         dic = {}
-        pool = mp.Pool(mp.cpu_count())
+        pool = mp.Pool(mp.cpu_count()-2)
         i = 0
-        # progress_bar(i, len(self.targ), 'data:')
+        progress_bar(i, len(self.targ), 'data:')
         for sub_dic, key in pool.imap(self.info_mp, self.targ):
-            # progress_bar(i, len(self.targ), 'data:')
+            progress_bar(i, len(self.targ), 'data:')
             i += 1
             dic[key] = sub_dic
         pool.close()
         pool.join()
         self.info = pd.DataFrame(dic)
 
-    def match(self, info0=None):
+    def old_match(self, threahold=2, info0=None):
         '''
         匹配
         配准思路为 将所有可能的平移量进行尝试
@@ -365,7 +402,7 @@ class RAPP(object):
         c_arr0 = info0['centers'].to_numpy()
         lenth = len(self.info.columns)
         for i, key in enumerate(self.info):
-            # progress_bar(i, lenth, 'match:')
+            progress_bar(i, lenth, 'match:')
             c_arr = self.info[key]['centers'].to_numpy()
             # 做差 得到所有可能的平移量
             shifts = c_arr[:, np.newaxis] - c_arr0
@@ -374,7 +411,7 @@ class RAPP(object):
             # 将残差量化
             res = np.linalg.norm([res.real, res.imag], axis=0)
             # 设定阈值 给差打分
-            points = (res < 2) * 1
+            points = (res < threahold) * 1
             # 搜集分数
             scores = np.sum(points, axis=2)
             scores = np.sum(scores, axis=2)
@@ -383,6 +420,68 @@ class RAPP(object):
             shifts = shifts[idxs[:, 0], idxs[:, 1]]
             shift = np.average(shifts, axis=0)
             self.shifts.append(shift)
+
+    def similar(self, D1, D2, threahold):
+        res = np.abs(D2 - D1[:, np.newaxis])
+        # 距离差低于阈值
+        simi_arr = np.sum((res < threahold) * 1, axis=1)
+        return len(simi_arr[simi_arr > 0])
+
+    def distance(self, C):
+        D = []
+        for c1 in C:
+            row = []
+            for c2 in C:
+                if c1 == c2:
+                    continue
+                d = c2 - c1
+                row.append(np.linalg.norm([d.real, d.imag]))
+            row = np.array(row)
+            # 最近的6颗星
+            # row = np.sort(row)[:] if len(row) >= 6 else row
+            D.append(row)
+        return np.array(D)
+
+    def match(self, threahold=2, info0=None):
+        self.shifts = []
+        self.flag = []
+        self.idx0 = []
+        self.idxi = []
+        if info0 is None:
+            info0 = self.info[self.info.columns.values[np.argmin(
+                self.info.columns.codes)]]
+        C0 = info0['centers'].to_numpy()
+        D0 = self.distance(C0)
+        l = len(self.info.columns)
+        for i, key in enumerate(self.info):
+            progress_bar(i, l, 'match:')
+            Ci = self.info[key]['centers'].to_numpy()
+            Di = self.distance(Ci)
+            Si = []
+            for d0 in D0:
+                row = []
+                for di in Di:
+                    row.append(self.similar(d0, di, threahold))
+                Si.append(np.array(row))
+            Si = np.array(Si)
+            Smax = np.max(Si)
+            if Smax < 3:
+                self.shifts.append(0 + 0*1j)
+                self.flag.append(False)
+                self.idx0.append(None)
+                self.idxi.append(None)
+            else:
+                idx0, idxi = np.argwhere(Si == np.max(Si))[0]
+                self.shifts.append(Ci[idxi] - C0[idx0])
+                self.flag.append(True)
+                idx0, idxi = [], []
+                for i, si in enumerate(Si):
+                    if np.max(si) < 3:
+                        continue
+                    idx0.append(i)
+                    idxi.append(np.argmax(si))
+                self.idx0.append(np.array(idx0))
+                self.idxi.append(np.array(idxi))
 
     def ap(self, info0=None, a=(1.2, 2.4, 3.6), gain=1.):
         '''
@@ -407,14 +506,16 @@ class RAPP(object):
 
         table = {
             str(c0): {
-                jd: [float('NaN'), float('NaN')] for jd, _ in self.info
+                jd: [float('NaN'), float('NaN'), float('NaN'), float('NaN'), float('NaN')] for jd, _ in self.info
             } for c0 in c_arr0
         }
 
         lenth = len(self.info.columns)
-        for i, items in enumerate(zip(self.targ, self.shifts)):
-            # progress_bar(i, lenth, 'ap:')
-            path, shift = items
+        for i, items in enumerate(zip(self.targ, self.shifts, self.flag)):
+            progress_bar(i, lenth, 'ap:')
+            path, shift, flag = items
+            if not flag:
+                continue
             c_arr = c_arr0 + shift
             img, jd, _ = self.load(path, True)
             for i, items in enumerate(zip(c_arr, c_arr0)):
@@ -433,43 +534,46 @@ class RAPP(object):
                     + flux / gain
                     + len(adu) * std**2
                     + len(adu)**2 * std**2 / len(skys))
-                table[str(c0)][jd] = [mag, err]
+                if flux / (np.sqrt(len(adu)) * std) < 5:
+                    continue
+                table[str(c0)][jd] = [mag, err, flux, len(adu), std]
         self.table = table
 
-    def draw_circle(self, filename, img, c_arr, r):
+    def draw_circle(self, filename, img, c_arr, r, flag):
         '''
         画孔径函数 参数解释同darw()
         '''
         img = img_scale(img)
-        w = 10.8
+        w = 10.8/2
         h = w / self.W * self.H
         fig, ax = plt.subplots(figsize=(h, w))
         ax.axis('off')
         ax.imshow(img, cmap=cm.cividis)
-        for i, c in enumerate(c_arr):
-            y, x = c.real, c.imag
-            font = {
-                'family': 'serif',
-                'color': 'yellow',
-                'weight': 'normal',
-                'size': self.font_size
-            }
-            ax.text(x=x+r*2,
-                    y=y+r*2,
-                    s=i,
-                    fontdict=font)
-            ax.add_artist(plt.Circle((x, y),
-                                     r*self.aperture,
-                                     edgecolor='red',
-                                     facecolor=(0, 0, 0, .0125)))
-            ax.add_artist(plt.Circle((x, y),
-                                     r*self.inner,
-                                     edgecolor='green',
-                                     facecolor=(0, 0, 0, .0125)))
-            ax.add_artist(plt.Circle((x, y),
-                                     r*self.outer,
-                                     edgecolor='green',
-                                     facecolor=(0, 0, 0, .0125)))
+        if flag:
+            for i, c in enumerate(c_arr):
+                y, x = c.real, c.imag
+                font = {
+                    'family': 'serif',
+                    'color': 'yellow',
+                    'weight': 'normal',
+                    'size': self.font_size
+                }
+                ax.text(x=x+r*2,
+                        y=y+r*2,
+                        s=i,
+                        fontdict=font)
+                ax.add_artist(plt.Circle((x, y),
+                                         r*self.aperture,
+                                         edgecolor='red',
+                                         facecolor=(0, 0, 0, .0125)))
+                ax.add_artist(plt.Circle((x, y),
+                                         r*self.inner,
+                                         edgecolor='green',
+                                         facecolor=(0, 0, 0, .0125)))
+                ax.add_artist(plt.Circle((x, y),
+                                         r*self.outer,
+                                         edgecolor='green',
+                                         facecolor=(0, 0, 0, .0125)))
         plt.tight_layout()
         fig.savefig(filename + '.png')
         plt.close()
@@ -501,18 +605,19 @@ class RAPP(object):
         self.draw_circle(filename=filename,
                          img=ref,
                          c_arr=c_arr0,
-                         r=r)
+                         r=r,
+                         flag=True)
         if show_all:
-            for path, c_arr in zip(self.targ, centers):
+            for path, c_arr, flag in zip(self.targ, centers, self.flag):
                 img, _, name = self.load(path, True)
                 filename = os.path.join(folder, name)
                 self.draw_circle(filename=filename,
                                  img=img,
                                  c_arr=c_arr,
-                                 r=r)
-                break
+                                 r=r,
+                                 flag=flag)
 
-    def save(self, folder='result'):
+    def save(self, folder='result', getD=False):
         '''
         将数据保存为csv与生成光变曲线
         Para:
@@ -535,16 +640,47 @@ class RAPP(object):
                 for jd in jds:
                     mag = self.table[str(fc)][jd][0]
                     err = self.table[str(fc)][jd][1]
-                    writer.writerow([jd, mag, err])
+                    flux = self.table[str(fc)][jd][2]
+                    number = self.table[str(fc)][jd][3]
+                    std = self.table[str(fc)][jd][4]
+                    snr = flux / (np.sqrt(number) * std)
+                    writer.writerow([jd, mag, err, snr, flux, number, std])
                     mag_lst.append(mag)
                     err_lst.append(err)
-                if np.isnan(np.sum(mag_lst)):
-                    continue
-                plt.errorbar(jds, mag_lst, err_lst, label=i)
+                # if np.isnan(np.sum(mag_lst)):
+                #     continue
+                # plt.errorbar(jds, mag_lst, err_lst, label=i)
+                plt.plot(jds, mag_lst, label=i)
+        plt.ylim(-20, -10)
         plt.legend()
         filename = os.path.join(folder, 'plot')
         plt.savefig(filename + '.eps')
         plt.close()
+        if getD:
+            idx0_in = self.idx0[0].copy()
+            for i in range(len(self.idx0)):
+                idx0 = self.idx0[i]
+                if self.flag[i]:
+                    idx0_in = np.intersect1d(idx0_in, idx0)
+            for i in range(len(idx0_in)):
+                D = []
+                for j, key in enumerate(self.info):
+                    if not self.flag[j]:
+                        continue
+                    Ci = self.info[key]['centers'].to_numpy()
+                    idx0 = self.idx0[j]
+                    idxi = self.idxi[j]
+                    _, _, jud_i = np.intersect1d(
+                        idx0_in, idx0, return_indices=True)
+                    idxi = idxi[jud_i]
+                    Di = Ci[idxi] - Ci[idxi[i]]
+                    norm = np.linalg.norm([Di.real, Di.imag], axis=0)
+                    norm = np.sort(norm)
+                    D.append(norm)
+                D = np.array(D)
+                D_std = np.std(D, axis=0)
+                filename = os.path.join(folder, str(i).zfill(2)+'_D.txt')
+                np.savetxt(filename, D_std, delimiter=', ', fmt='%.4f')
 
     def img_combine_big(self):
         '''
@@ -565,7 +701,7 @@ class RAPP(object):
         Y = int(abs(ymax))
         X = int(abs(xmax))
         for i, items in enumerate(zip(iys_arr, ixs_arr, self.targ)):
-            # progress_bar(i, L, 'combine:')
+            progress_bar(i, L, 'combine:')
             iys, ixs, path = items
             img = self.load(path)
             sky, std = bginfo(img, mask=self.mask)
@@ -581,6 +717,8 @@ class RAPP(object):
         '''
         合并图的多进程调用函数
         '''
+        if not self.flag[self.targ.index(path)]:
+            return False, None, None, None
         shift = self.shifts[self.targ.index(path)]
         img = self.load(path)
         sky, std = bginfo(img, mask=self.mask)
@@ -605,7 +743,7 @@ class RAPP(object):
         xT, yT = np.meshgrid(xT, yT)
         x, y = np.meshgrid(x, y)
 
-        return yT, xT, img[y, x] * self.mask[y, x]
+        return True, yT, xT, img[y, x] * self.mask[y, x]
 
     def img_combine(self):
         '''
@@ -614,11 +752,16 @@ class RAPP(object):
         '''
         img_total = np.zeros((self.W, self.H))
         lenth = len(self.targ)
-        pool = mp.Pool(mp.cpu_count())
+        pool = mp.Pool(mp.cpu_count()-2)
         i = 0
+        N = 0
         for res in pool.imap(self.combine, self.targ):
-            # progress_bar(i, lenth, 'combine:')
+            progress_bar(i, lenth, 'combine:')
             i += 1
-            y, x, img = res
-            img_total[y, x] += img
-        return img_total / np.sqrt(lenth)
+            flag, y, x, img = res
+            if flag:
+                N += 1
+                img_total[y, x] += img
+        pool.close()
+        pool.join()
+        return img_total / np.sqrt(N)
