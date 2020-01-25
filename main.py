@@ -1,37 +1,23 @@
 # -*- coding:utf-8 -*-
-from module.core import RAPP
+from module.core_mp import RAPP
 
 
 def run():
-    rapp = RAPP(targ=r'data/',
-                # bias=r'bias/',  # 可选
-                # dark=r'dark/',  # 可选
-                # flat=r'flat/',  # 可选
+    rapp = RAPP(targ=path+'/rawdata/3C454/'+band,
+                bias=path+'/rawdata/bias/'+band,
+                dark=path+'/rawdata/dark/'+band,
+                flat=path+'/rawdata/twflat/'+band,
                 expo_key='EXPOS',
                 date_key='DATE',
-                # mask=,  # 可选
-                # count=,  # 可选
-                # N=,
+                # fp_size=(75, 10),
                 )
     rapp.info_init()
     rapp.match()
     img = rapp.img_combine()
-    info0 = rapp.find_star(raw=img,
-                           ref=True,
-                           count=10)
-    rapp.match(info0=info0)
-    rapp.ap(info0=info0,
-            # a=,  # 可选
-            # gain=,  # 可选
-            )
-    rapp.draw(folder=folder,
-              # show_all=,  # 可选
-              ref=img,
-              info0=info0
-              # a=,  # 可选
-              # ont_size=,  # 可选
-              )
-    rapp.save(folder=folder)
+    info = rapp.find_star(img, True, 10)
+    rapp.ap(info)
+    rapp.save(folder)
+    rapp.draw(folder, True, img, info)
 
 
 if __name__ == "__main__":
