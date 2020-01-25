@@ -3,10 +3,10 @@ from module.core_mp import RAPP
 
 
 def run():
-    rapp = RAPP(targ=path+'/rawdata/3C454/'+band,
-                bias=path+'/rawdata/bias/'+band,
-                dark=path+'/rawdata/dark/'+band,
-                flat=path+'/rawdata/twflat/'+band,
+    rapp = RAPP(targ='targ_path',
+                bias='bias_path',
+                dark='dark_path',
+                flat='flat_path',
                 expo_key='EXPOS',
                 date_key='DATE',
                 # fp_size=(75, 10),
