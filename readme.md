@@ -1,7 +1,7 @@
 # Warning!
 1) Do not use IDE to debugging the program, because RAPP uses the multiprocessing module.
 2) The latest version of Anaconda is recommended, as the older version may not work (the February 2020 version of Anaconda can run RAPP directly, in Linux system).
-3) Since the 1.26m telescope is equatorial, the parameter of image rotation was set to 0.
+3) Since the 1.26m telescope is equatorial, the parameter of image rotation was set to 0, and the codes of image rotation was not written temporarily.
 
 
 # Simple photometry tutorial:
