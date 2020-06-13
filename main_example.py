@@ -6,9 +6,9 @@ import os
 import numpy as np
 import multiprocessing as mp
 
-def main1(path, band,Rs=None):
+def main1(path, band):
     date = os.path.basename(path)
-    folder = os.path.join('/data/output', date) # Output
+    folder = os.path.join('output', date) # Output
     if not os.path.exists(folder):
         os.mkdir(folder)
     folder = os.path.join(folder, band)
