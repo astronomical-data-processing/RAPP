@@ -2,6 +2,8 @@
 # Author:weirong, zwj, Jnk_xz,
 # pylint:disable=maybe-no-member
 # pylint:disable=invalid-unary-operand-type
+# Robust Automated Photometry Pipeline for Blurred Images
+# https://ui.adsabs.harvard.edu/abs/2020PASP..132g5001H/abstract
 import csv
 import multiprocessing as mp
 import os
