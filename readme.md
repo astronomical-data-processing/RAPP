@@ -117,3 +117,6 @@ Then, the reference image will draw by combine image
 ## Last:
 
     rapp.save(result='folder')
+
+# Robust Automated Photometry Pipeline for Blurred Images
+# https://ui.adsabs.harvard.edu/abs/2020PASP..132g5001H/abstract
