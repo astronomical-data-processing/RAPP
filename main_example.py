@@ -1,13 +1,12 @@
 # -*- coding:utf-8 -*-
+# Robust Automated Photometry Pipeline for Blurred Images
+# https://ui.adsabs.harvard.edu/abs/2020PASP..132g5001H/abstract
 from module.core_mp import RAPP
 import pickle
 from glob import glob
 import os
 import numpy as np
 import multiprocessing as mp
-
-# Acknowledging Robust Automated Photometry Pipeline for Blurred Images
-# https://ui.adsabs.harvard.edu/abs/2020PASP..132g5001H/abstract
 
 def main1(path, band):
     date = os.path.basename(path)
